@@ -907,7 +907,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 
 			const availability = await window.electronAPI.isNativeMacCaptureAvailable();
 			if (!availability.success || !availability.available) {
-				if (availability.reason === "unsupported-platform") {
+				if (availability.reason === "unsupported-platform" || availability.reason === "disabled") {
 					return false;
 				}
 

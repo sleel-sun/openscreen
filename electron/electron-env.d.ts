@@ -109,7 +109,7 @@ interface Window {
 			success: boolean;
 			available: boolean;
 			helperPath?: string;
-			reason?: "unsupported-platform" | "missing-helper" | string;
+			reason?: "unsupported-platform" | "missing-helper" | "disabled" | string;
 			error?: string;
 		}>;
 		startNativeWindowsRecording: (
