@@ -11,6 +11,7 @@ import {
 	systemPreferences,
 	Tray,
 } from "electron";
+import { formatChromiumFeatureList, getDisabledChromiumFeatures } from "./chromiumFeatures";
 import { mainT, setMainLocale } from "./i18n";
 import { getSelectedDesktopSource, registerIpcHandlers } from "./ipc/handlers";
 import {
@@ -22,11 +23,11 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// Use Screen & System Audio Recording permissions instead of CoreAudio Tap API on macOS.
-// CoreAudio Tap requires NSAudioCaptureUsageDescription in the parent app's Info.plist,
-// which doesn't work when running from a terminal/IDE during development, makes my life easier
-if (process.platform === "darwin") {
-	app.commandLine.appendSwitch("disable-features", "MacCatapLoopbackAudioForScreenShare");
+const disabledChromiumFeatures = formatChromiumFeatureList(
+	getDisabledChromiumFeatures(process.platform),
+);
+if (disabledChromiumFeatures) {
+	app.commandLine.appendSwitch("disable-features", disabledChromiumFeatures);
 }
 
 // Enable Wayland support for proper screen capture and window management

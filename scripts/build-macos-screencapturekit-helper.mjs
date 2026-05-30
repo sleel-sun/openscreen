@@ -34,20 +34,19 @@ const xcodebuildVersion = spawnSync("xcodebuild", ["-version"], {
 
 if (xcodebuildVersion.status !== 0) {
 	const message = `${xcodebuildVersion.stderr ?? ""}${xcodebuildVersion.stdout ?? ""}`.trim();
-	console.error(
+	console.warn(
 		[
-			"Unable to build the macOS ScreenCaptureKit helper because full Xcode is not active.",
+			"Full Xcode is not active. Continuing with SwiftPM; if Swift cannot build the helper, install full Xcode.",
 			"",
 			message,
 			"",
-			"Install Xcode from the App Store or Apple Developer downloads, then run:",
+			"If the build fails, install Xcode from the App Store or Apple Developer downloads, then run:",
 			"  sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer",
 			"  sudo xcodebuild -license accept",
 			"",
 			"Command Line Tools alone may not include the Swift SDK/platform metadata required by SwiftPM.",
 		].join("\n"),
 	);
-	process.exit(1);
 }
 
 const result = spawnSync(
