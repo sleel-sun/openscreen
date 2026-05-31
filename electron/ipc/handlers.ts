@@ -16,10 +16,7 @@ import {
 	shell,
 	systemPreferences,
 } from "electron";
-import {
-	isNativeMacCaptureOptInEnabled,
-	type NativeMacRecordingRequest,
-} from "../../src/lib/nativeMacRecording";
+import { type NativeMacRecordingRequest } from "../../src/lib/nativeMacRecording";
 import type { NativeWindowsRecordingRequest } from "../../src/lib/nativeWindowsRecording";
 import {
 	type CursorCaptureMode,
@@ -51,7 +48,6 @@ const PROJECT_FILE_EXTENSION = "openscreen";
 const SHORTCUTS_FILE = path.join(app.getPath("userData"), "shortcuts.json");
 const RECORDING_FILE_PREFIX = "recording-";
 const RECORDING_SESSION_SUFFIX = ".session.json";
-const NATIVE_MAC_CAPTURE_OPT_IN_ENV = "OPENSCREEN_ENABLE_NATIVE_MAC_CAPTURE";
 const ALLOWED_IMPORT_VIDEO_EXTENSIONS = new Set([".webm", ".mp4", ".mov", ".avi", ".mkv"]);
 const PREVIEW_AUDIO_DIR = path.join(app.getPath("userData"), "preview-audio");
 const nativeMacCaptureEvents = new EventEmitter();
@@ -679,10 +675,6 @@ async function findNativeMacCaptureHelperPath() {
 	}
 
 	return null;
-}
-
-function isNativeMacCaptureEnabled() {
-	return isNativeMacCaptureOptInEnabled(process.env[NATIVE_MAC_CAPTURE_OPT_IN_ENV]);
 }
 
 function isWindowsGraphicsCaptureOsSupported() {
@@ -1508,9 +1500,6 @@ export function registerIpcHandlers(
 		if (process.platform !== "darwin") {
 			return { success: true, available: false, reason: "unsupported-platform" };
 		}
-		if (!isNativeMacCaptureEnabled()) {
-			return { success: true, available: false, reason: "disabled" };
-		}
 
 		const helperPath = await findNativeMacCaptureHelperPath();
 		return helperPath
@@ -1707,12 +1696,6 @@ export function registerIpcHandlers(
 		try {
 			if (process.platform !== "darwin") {
 				return { success: false, error: "Native macOS capture requires macOS." };
-			}
-			if (!isNativeMacCaptureEnabled()) {
-				return {
-					success: false,
-					error: `Native macOS capture is disabled. Set ${NATIVE_MAC_CAPTURE_OPT_IN_ENV}=1 to enable the ScreenCaptureKit helper.`,
-				};
 			}
 			if (nativeMacCaptureProcess) {
 				return { success: false, error: "Native macOS capture is already running." };

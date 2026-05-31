@@ -124,6 +124,7 @@ final class ScreenCaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
 		let filter: SCContentFilter
 		let width: Int
 		let height: Int
+		let sourceRect: CGRect?
 	}
 
 	private let request: RecordingRequest
@@ -160,7 +161,7 @@ final class ScreenCaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
 		let target = try makeCaptureTarget(from: content)
 		outputWidth = target.width
 		outputHeight = target.height
-		let configuration = makeStreamConfiguration()
+		let configuration = makeStreamConfiguration(sourceRect: target.sourceRect)
 		let stream = SCStream(filter: target.filter, configuration: configuration, delegate: self)
 
 		try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: sampleQueue)
@@ -351,7 +352,8 @@ final class ScreenCaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
 			return CaptureTarget(
 				filter: SCContentFilter(display: display, excludingWindows: []),
 				width: clampCaptureDimension(width, fallback: request.video.width),
-				height: clampCaptureDimension(height, fallback: request.video.height)
+				height: clampCaptureDimension(height, fallback: request.video.height),
+				sourceRect: nil
 			)
 		case "window":
 			guard let windowId = request.source.windowId else {
@@ -363,23 +365,39 @@ final class ScreenCaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
 			let candidateDisplay = content.displays.first {
 				$0.frame.intersects(window.frame) || $0.frame.contains(CGPoint(x: window.frame.midX, y: window.frame.midY))
 			}
-			let scaleFactor = Self.scaleFactor(for: candidateDisplay?.displayID ?? CGMainDisplayID())
-			let width = Int(window.frame.width) * scaleFactor
-			let height = Int(window.frame.height) * scaleFactor
+			guard let display = candidateDisplay else {
+				let scaleFactor = Self.scaleFactor(for: CGMainDisplayID())
+				let width = Int(window.frame.width) * scaleFactor
+				let height = Int(window.frame.height) * scaleFactor
+				return CaptureTarget(
+					filter: SCContentFilter(desktopIndependentWindow: window),
+					width: clampCaptureDimension(width, fallback: request.video.width),
+					height: clampCaptureDimension(height, fallback: request.video.height),
+					sourceRect: nil
+				)
+			}
+			let sourceRect = window.frame.intersection(display.frame)
+			let scaleFactor = Self.scaleFactor(for: display.displayID)
+			let width = Int(sourceRect.width) * scaleFactor
+			let height = Int(sourceRect.height) * scaleFactor
 			return CaptureTarget(
-				filter: SCContentFilter(desktopIndependentWindow: window),
+				filter: SCContentFilter(display: display, excludingWindows: []),
 				width: clampCaptureDimension(width, fallback: request.video.width),
-				height: clampCaptureDimension(height, fallback: request.video.height)
+				height: clampCaptureDimension(height, fallback: request.video.height),
+				sourceRect: sourceRect
 			)
 		default:
 			throw HelperError.invalidSourceType(request.source.type)
 		}
 	}
 
-	private func makeStreamConfiguration() -> SCStreamConfiguration {
+	private func makeStreamConfiguration(sourceRect: CGRect?) -> SCStreamConfiguration {
 		let configuration = SCStreamConfiguration()
 		configuration.width = outputWidth
 		configuration.height = outputHeight
+		if let sourceRect {
+			configuration.sourceRect = sourceRect
+		}
 		configuration.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(max(1, request.video.fps)))
 		configuration.queueDepth = 6
 		configuration.showsCursor = !request.video.hideSystemCursor

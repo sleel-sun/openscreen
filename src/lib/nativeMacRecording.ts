@@ -1,8 +1,6 @@
 import type { Rectangle } from "electron";
 import type { CursorCaptureMode } from "./recordingSession";
 
-const NATIVE_MAC_CAPTURE_ENABLE_VALUES = new Set(["1", "true", "yes", "on"]);
-
 export type NativeMacSourceType = "display" | "window";
 
 export type NativeMacRecordingRequest = {
@@ -116,8 +114,4 @@ export function parseMacDisplayIdFromSourceId(sourceId?: string | null) {
 	}
 
 	return Number(displayIdPart);
-}
-
-export function isNativeMacCaptureOptInEnabled(value?: string | null) {
-	return NATIVE_MAC_CAPTURE_ENABLE_VALUES.has(value?.trim().toLowerCase() ?? "");
 }

@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-	isNativeMacCaptureOptInEnabled,
-	parseMacDisplayIdFromSourceId,
-	parseMacWindowIdFromSourceId,
-} from "./nativeMacRecording";
+import { parseMacDisplayIdFromSourceId, parseMacWindowIdFromSourceId } from "./nativeMacRecording";
 
 describe("nativeMacRecording source parsing", () => {
 	it("parses Electron window source ids into ScreenCaptureKit window ids", () => {
@@ -26,17 +22,5 @@ describe("nativeMacRecording source parsing", () => {
 		expect(parseMacDisplayIdFromSourceId("window:123:0")).toBeNull();
 		expect(parseMacDisplayIdFromSourceId("screen:not-a-number:0")).toBeNull();
 		expect(parseMacDisplayIdFromSourceId(undefined)).toBeNull();
-	});
-
-	it("requires an explicit opt-in value for native macOS capture", () => {
-		expect(isNativeMacCaptureOptInEnabled("1")).toBe(true);
-		expect(isNativeMacCaptureOptInEnabled("true")).toBe(true);
-		expect(isNativeMacCaptureOptInEnabled("YES")).toBe(true);
-		expect(isNativeMacCaptureOptInEnabled(" on ")).toBe(true);
-
-		expect(isNativeMacCaptureOptInEnabled(undefined)).toBe(false);
-		expect(isNativeMacCaptureOptInEnabled("")).toBe(false);
-		expect(isNativeMacCaptureOptInEnabled("0")).toBe(false);
-		expect(isNativeMacCaptureOptInEnabled("false")).toBe(false);
 	});
 });
