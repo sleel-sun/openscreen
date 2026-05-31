@@ -1,3 +1,5 @@
+import AppKit
+import ApplicationServices
 import AVFoundation
 import CoreGraphics
 import CoreMedia
@@ -362,6 +364,7 @@ final class ScreenCaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
 			guard let window = content.windows.first(where: { $0.windowID == windowId }) else {
 				throw HelperError.sourceNotFound("No ScreenCaptureKit window found for id \(windowId).")
 			}
+			activateWindowForCapture(window)
 			let candidateDisplay = content.displays.first {
 				$0.frame.intersects(window.frame) || $0.frame.contains(CGPoint(x: window.frame.midX, y: window.frame.midY))
 			}
@@ -428,6 +431,73 @@ final class ScreenCaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
 		}
 
 		return configuration
+	}
+
+	private func activateWindowForCapture(_ window: SCWindow) {
+		guard let application = window.owningApplication else {
+			return
+		}
+
+		let processId = pid_t(application.processID)
+		NSRunningApplication(processIdentifier: processId)?.activate(options: [.activateIgnoringOtherApps])
+
+		guard AXIsProcessTrusted() else {
+			emit([
+				"event": "warning",
+				"code": "window-raise-accessibility-unavailable",
+				"message": "Accessibility permission is required to raise the exact window; activated the owning app instead.",
+			])
+			Thread.sleep(forTimeInterval: 0.2)
+			return
+		}
+
+		let appElement = AXUIElementCreateApplication(processId)
+		var windowsValue: CFTypeRef?
+		let copyResult = AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsValue)
+		guard copyResult == .success, let axWindows = windowsValue as? [AXUIElement] else {
+			emit([
+				"event": "warning",
+				"code": "window-raise-failed",
+				"message": "Unable to read accessibility windows for \(application.applicationName).",
+			])
+			Thread.sleep(forTimeInterval: 0.2)
+			return
+		}
+
+		guard let axWindow = axWindows.first(where: { axWindowNumber($0) == window.windowID }) else {
+			emit([
+				"event": "warning",
+				"code": "window-raise-failed",
+				"message": "Unable to match accessibility window \(window.windowID) for \(application.applicationName).",
+			])
+			Thread.sleep(forTimeInterval: 0.2)
+			return
+		}
+
+		AXUIElementSetAttributeValue(appElement, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+		AXUIElementPerformAction(axWindow, kAXRaiseAction as CFString)
+		AXUIElementSetAttributeValue(axWindow, kAXMainAttribute as CFString, kCFBooleanTrue)
+		AXUIElementSetAttributeValue(axWindow, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+		Thread.sleep(forTimeInterval: 0.2)
+	}
+
+	private func axWindowNumber(_ window: AXUIElement) -> UInt32? {
+		var value: CFTypeRef?
+		let result = AXUIElementCopyAttributeValue(window, "AXWindowNumber" as CFString, &value)
+		guard result == .success else {
+			return nil
+		}
+
+		if let number = value as? NSNumber {
+			return number.uint32Value
+		}
+		if let number = value as? UInt32 {
+			return number
+		}
+		if let number = value as? Int, number >= 0 {
+			return UInt32(number)
+		}
+		return nil
 	}
 
 	private func setupWriter() throws {
