@@ -1,3 +1,5 @@
+import AppKit
+import ApplicationServices
 import AVFoundation
 import CoreGraphics
 import CoreMedia
@@ -124,6 +126,7 @@ final class ScreenCaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
 		let filter: SCContentFilter
 		let width: Int
 		let height: Int
+		let sourceRect: CGRect?
 	}
 
 	private let request: RecordingRequest
@@ -160,7 +163,7 @@ final class ScreenCaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
 		let target = try makeCaptureTarget(from: content)
 		outputWidth = target.width
 		outputHeight = target.height
-		let configuration = makeStreamConfiguration()
+		let configuration = makeStreamConfiguration(sourceRect: target.sourceRect)
 		let stream = SCStream(filter: target.filter, configuration: configuration, delegate: self)
 
 		try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: sampleQueue)
@@ -351,7 +354,8 @@ final class ScreenCaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
 			return CaptureTarget(
 				filter: SCContentFilter(display: display, excludingWindows: []),
 				width: clampCaptureDimension(width, fallback: request.video.width),
-				height: clampCaptureDimension(height, fallback: request.video.height)
+				height: clampCaptureDimension(height, fallback: request.video.height),
+				sourceRect: nil
 			)
 		case "window":
 			guard let windowId = request.source.windowId else {
@@ -360,26 +364,43 @@ final class ScreenCaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
 			guard let window = content.windows.first(where: { $0.windowID == windowId }) else {
 				throw HelperError.sourceNotFound("No ScreenCaptureKit window found for id \(windowId).")
 			}
+			activateWindowForCapture(window)
 			let candidateDisplay = content.displays.first {
 				$0.frame.intersects(window.frame) || $0.frame.contains(CGPoint(x: window.frame.midX, y: window.frame.midY))
 			}
-			let scaleFactor = Self.scaleFactor(for: candidateDisplay?.displayID ?? CGMainDisplayID())
-			let width = Int(window.frame.width) * scaleFactor
-			let height = Int(window.frame.height) * scaleFactor
+			guard let display = candidateDisplay else {
+				let scaleFactor = Self.scaleFactor(for: CGMainDisplayID())
+				let width = Int(window.frame.width) * scaleFactor
+				let height = Int(window.frame.height) * scaleFactor
+				return CaptureTarget(
+					filter: SCContentFilter(desktopIndependentWindow: window),
+					width: clampCaptureDimension(width, fallback: request.video.width),
+					height: clampCaptureDimension(height, fallback: request.video.height),
+					sourceRect: nil
+				)
+			}
+			let sourceRect = window.frame.intersection(display.frame)
+			let scaleFactor = Self.scaleFactor(for: display.displayID)
+			let width = Int(sourceRect.width) * scaleFactor
+			let height = Int(sourceRect.height) * scaleFactor
 			return CaptureTarget(
-				filter: SCContentFilter(desktopIndependentWindow: window),
+				filter: SCContentFilter(display: display, excludingWindows: []),
 				width: clampCaptureDimension(width, fallback: request.video.width),
-				height: clampCaptureDimension(height, fallback: request.video.height)
+				height: clampCaptureDimension(height, fallback: request.video.height),
+				sourceRect: sourceRect
 			)
 		default:
 			throw HelperError.invalidSourceType(request.source.type)
 		}
 	}
 
-	private func makeStreamConfiguration() -> SCStreamConfiguration {
+	private func makeStreamConfiguration(sourceRect: CGRect?) -> SCStreamConfiguration {
 		let configuration = SCStreamConfiguration()
 		configuration.width = outputWidth
 		configuration.height = outputHeight
+		if let sourceRect {
+			configuration.sourceRect = sourceRect
+		}
 		configuration.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(max(1, request.video.fps)))
 		configuration.queueDepth = 6
 		configuration.showsCursor = !request.video.hideSystemCursor
@@ -410,6 +431,73 @@ final class ScreenCaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
 		}
 
 		return configuration
+	}
+
+	private func activateWindowForCapture(_ window: SCWindow) {
+		guard let application = window.owningApplication else {
+			return
+		}
+
+		let processId = pid_t(application.processID)
+		NSRunningApplication(processIdentifier: processId)?.activate(options: [.activateIgnoringOtherApps])
+
+		guard AXIsProcessTrusted() else {
+			emit([
+				"event": "warning",
+				"code": "window-raise-accessibility-unavailable",
+				"message": "Accessibility permission is required to raise the exact window; activated the owning app instead.",
+			])
+			Thread.sleep(forTimeInterval: 0.2)
+			return
+		}
+
+		let appElement = AXUIElementCreateApplication(processId)
+		var windowsValue: CFTypeRef?
+		let copyResult = AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsValue)
+		guard copyResult == .success, let axWindows = windowsValue as? [AXUIElement] else {
+			emit([
+				"event": "warning",
+				"code": "window-raise-failed",
+				"message": "Unable to read accessibility windows for \(application.applicationName).",
+			])
+			Thread.sleep(forTimeInterval: 0.2)
+			return
+		}
+
+		guard let axWindow = axWindows.first(where: { axWindowNumber($0) == window.windowID }) else {
+			emit([
+				"event": "warning",
+				"code": "window-raise-failed",
+				"message": "Unable to match accessibility window \(window.windowID) for \(application.applicationName).",
+			])
+			Thread.sleep(forTimeInterval: 0.2)
+			return
+		}
+
+		AXUIElementSetAttributeValue(appElement, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+		AXUIElementPerformAction(axWindow, kAXRaiseAction as CFString)
+		AXUIElementSetAttributeValue(axWindow, kAXMainAttribute as CFString, kCFBooleanTrue)
+		AXUIElementSetAttributeValue(axWindow, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+		Thread.sleep(forTimeInterval: 0.2)
+	}
+
+	private func axWindowNumber(_ window: AXUIElement) -> UInt32? {
+		var value: CFTypeRef?
+		let result = AXUIElementCopyAttributeValue(window, "AXWindowNumber" as CFString, &value)
+		guard result == .success else {
+			return nil
+		}
+
+		if let number = value as? NSNumber {
+			return number.uint32Value
+		}
+		if let number = value as? UInt32 {
+			return number
+		}
+		if let number = value as? Int, number >= 0 {
+			return UInt32(number)
+		}
+		return nil
 	}
 
 	private func setupWriter() throws {

@@ -16,7 +16,7 @@ import {
 	shell,
 	systemPreferences,
 } from "electron";
-import type { NativeMacRecordingRequest } from "../../src/lib/nativeMacRecording";
+import { type NativeMacRecordingRequest } from "../../src/lib/nativeMacRecording";
 import type { NativeWindowsRecordingRequest } from "../../src/lib/nativeWindowsRecording";
 import {
 	type CursorCaptureMode,
